@@ -12,26 +12,30 @@ typedef struct Task{
 } task;
 
 
+
+typedef struct thread_pool
+{
+    struct thread ** threads;
+    OSQueue* tasksQueue;
+    volatile  int  numAlive;
+    volatile  int numActive;
+    pthread_cond_t  threadAreIdle;
+    pthread_mutex_t  countActiveMutex;
+    pthread_mutex_t taskLock;
+    bool shouldWork;
+
+
+}ThreadPool;
+
 typedef struct Thread{
-    struct ThreadPool* threadPool;
+    ThreadPool* threadPool;
     pthread_t pThread;
     int id;
 
 
 } thread;
 
-typedef struct thread_pool
-{
-    thread ** threads;
-    OSQueue* tasksQueue;
-    volatile  int  numAlive;
-    volatile  int numActive;
-    pthread_cond_t  threadAreIdle;
-    pthread_mutex_t  thpLock;
-    bool shouldWork;
 
-
-}ThreadPool;
 
 ThreadPool* tpCreate(int numOfThreads);
 
