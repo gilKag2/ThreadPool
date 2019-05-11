@@ -20,9 +20,10 @@ typedef struct thread_pool
     volatile  int  numAlive;
     volatile  int numActive;
     pthread_cond_t  threadAreIdle;
-    pthread_mutex_t  countActiveMutex;
+    pthread_mutex_t  countMutex;
     pthread_mutex_t taskLock;
     bool shouldWork;
+    bool shouldWaitToFinish;
 
 
 }ThreadPool;
@@ -30,8 +31,6 @@ typedef struct thread_pool
 typedef struct Thread{
     ThreadPool* threadPool;
     pthread_t pThread;
-    int id;
-
 
 } thread;
 

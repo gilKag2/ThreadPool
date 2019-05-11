@@ -12,49 +12,123 @@ void error(){
     write(STDERR_FILENO, ERROR, ERROR_SIZE);
 }
 
+void freeTp(ThreadPool* tp) {
+    osDestroyQueue(tp->tasksQueue);
+    pthread_mutex_destroy(&tp->taskLock);
+    pthread_mutex_destroy(&tp->countMutex);
+    pthread_cond_destroy(&tp->threadAreIdle);
+    free(tp->threads);
+    free(tp);
+}
+
 task* getNextTask(ThreadPool* tp){
-    pthread_mutex_lock(&tp->taskLock);
+    if (pthread_mutex_lock(&tp->taskLock) != 0) {
+        error();
+        return NULL;
+    }
     task*  nextTask = osDequeue(tp->tasksQueue);
-    pthread_mutex_unlock(&tp->taskLock);
+    if (pthread_mutex_unlock(&tp->taskLock) != 0) {
+        error();
+        return  NULL;
+    }
     return  nextTask;
 }
 
 // assigning a thread to execute a task.
 void* assignThread(thread * th) {
     ThreadPool* threadPool = (ThreadPool *) th->threadPool;
+    if(pthread_mutex_lock(&threadPool->countMutex) != 0) {
+        error();
+        return NULL;
+    }
+    // increase count;
+    threadPool->numAlive++;
+    if (pthread_mutex_unlock(&threadPool->countMutex) != 0) {
+        error();
+        return  NULL;
+    }
+    
     while (threadPool->shouldWork){
         if (osIsQueueEmpty(threadPool->tasksQueue)){
-            // do something here about destroy
+            //
+            if (threadPool->shouldWaitToFinish) // end here somehow without returning NULL
+            while (threadPool->shouldWork &&  )
+            
         }
-        pthread_mutex_lock(&threadPool->countActiveMutex);
+        if (pthread_mutex_lock(&threadPool->countMutex) != 0) {
+            error();
+            return NULL;
+        }
         // one more active thread.
         threadPool->numActive++;
-        pthread_mutex_unlock(&threadPool->countActiveMutex);
+        if (pthread_mutex_unlock(&threadPool->countMutex) != 0){
+            error();
+            return NULL;
+        }
         // get the next task and execute.
         task * nextTask = getNextTask(threadPool);
+        if (nextTask == NULL)
+            return NULL;
         nextTask->function(nextTask->arg);
         free(nextTask);
     }
-    pthread_mutex_lock(&threadPool->countActiveMutex);
+    if (pthread_mutex_lock(&threadPool->countMutex) != 0){
+        error();
+        return NULL;
+    }
     threadPool->numActive--;
     // all thread are idle(maybe some are block), so we signal to realease from the block.
     if (threadPool->numActive == 0) {
-        pthread_cond_signal(&threadPool->threadAreIdle);
+        if (pthread_cond_signal(&threadPool->threadAreIdle) != 0){
+            error();
+            return  NULL;
+        }
     }
-    pthread_mutex_unlock(&threadPool->countActiveMutex);
+   if (pthread_mutex_unlock(&threadPool->countMutex) != 0){
+       error();
+       return  NULL;
+   }
 }
 
 // initialize the thread.
-int initThread(thread** th, int id, ThreadPool* thPool) {
+void* initThread(thread** th, ThreadPool* thPool) {
     *th = (thread*)malloc(sizeof(thread));
     if (*th == NULL){
         error();
-        return -1;
+        return NULL;
     }
-    (*th)->id = id;
+   
     (*th)->threadPool = thPool;
-    pthread_create(&(*th)->pThread, NULL, (void*)assignThread, (*th));
+    if (pthread_create(&(*th)->pThread, NULL, (void*)assignThread, (*th)) != 0) {
+        error();
+        return NULL;
+    }
 }
+
+void* initPthreadStuff(ThreadPool* th) {
+    if (pthread_mutex_init(&th->countMutex, NULL) != 0) {
+        error();
+        return NULL;
+    }
+    if (pthread_mutex_init(&th->taskLock, NULL) != 0){
+        error();
+        if (pthread_mutex_destroy(&th->countMutex) != 0){
+            error();
+        }
+        return NULL;
+    }
+        
+    if (pthread_cond_init(&th->threadAreIdle, NULL) != 0){
+        error();
+        if (pthread_mutex_destroy(&th->taskLock) != 0) 
+            error();
+        if (pthread_mutex_destroy(&th->countMutex) != 0)
+            error();
+        return NULL;
+    }
+}
+
+
 
 ThreadPool* tpCreate(int numOfThreads) {
     if (numOfThreads < 1) {
@@ -70,6 +144,7 @@ ThreadPool* tpCreate(int numOfThreads) {
         return NULL;
     }
     threadPool->shouldWork = true;
+    threadPool->shouldWaitToFinish = false;
     threadPool->numActive = 0;
     threadPool->numAlive = 0;
     threadPool->tasksQueue = osCreateQueue();
@@ -82,14 +157,28 @@ ThreadPool* tpCreate(int numOfThreads) {
         free(threadPool);
         return NULL;
     }
-    // init mutex and cond.
-    pthread_mutex_init(&threadPool->countActiveMutex, NULL);
+   /* // init mutex and cond.
+    if (pthread_mutex_init(&threadPool->countMutex, NULL) != 0) 
+    }
     pthread_mutex_init(&threadPool->taskLock, NULL);
     pthread_cond_init(&threadPool->threadAreIdle, NULL);
-
+*/
+   if (initPthreadStuff(threadPool) == NULL){
+       osDestroyQueue(threadPool->tasksQueue);
+       free(threadPool);
+       return NULL;
+   }
     int i;
     for (i = 0; i < numOfThreads; i++) {
-        initThread((thread **) &threadPool->threads[i], i, threadPool);
+        if (initThread((thread **) &threadPool->threads[i], threadPool) == NULL) {
+            for(i = 0; i <= threadPool->numAlive; i++) {                       ///////////////// not sure here!!!1
+                if (threadPool->threads[i] != NULL) {
+                    free(threadPool->threads[i]);
+                }
+            }
+            freeTp(threadPool);
+            return NULL;
+        }
     }
 
     // wait for all the threads to init.
@@ -116,5 +205,8 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* par
 
 
 void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
-
+    if (threadPool == NULL) return;
+    threadPool->shouldWaitToFinish = shouldWaitForTasks ? true : false;
+    threadPool->shouldWork = !threadPool->shouldWaitToFinish;
+    
 }
