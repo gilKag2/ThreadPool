@@ -21,7 +21,6 @@ void freeTp(ThreadPool* tp) {
         }
     }
     if (tp->threads != NULL) {
-        printf ("deleting threads\n");
         free(tp->threads);
     }
     osDestroyQueue(tp->tasksQueue);
@@ -50,17 +49,17 @@ task* getNextTask(ThreadPool* tp){
 void* assignThread(void * th) {
 
     ThreadPool* threadPool = (ThreadPool *) th;
-    if(pthread_mutex_lock(&threadPool->countMutex) != 0) {
+    if(pthread_mutex_trylock(&threadPool->countMutex) != 0) {
         error();
         freeTp(threadPool);
-        return NULL;
+        exit(EXIT_FAILURE);
     }
     // increase count;
     threadPool->numAlive++;
     if (pthread_mutex_unlock(&threadPool->countMutex) != 0) {
         error();
         freeTp(threadPool);
-        return  NULL;
+        exit(EXIT_FAILURE);
     }
 
     while (threadPool->shouldWork){
@@ -71,31 +70,31 @@ void* assignThread(void * th) {
             if (pthread_mutex_lock(&threadPool->taskLock) != 0) {
                 error();
                 freeTp(threadPool);
-                return  NULL;
+                exit(EXIT_FAILURE);
             }
             // wait for additional tasks.
             if (pthread_cond_wait(&threadPool->threadsCond, &threadPool->taskLock) != 0){
                 error();
                 freeTp(threadPool);
-                return NULL;
+                exit(EXIT_FAILURE);
             }
             if (pthread_mutex_unlock(&threadPool->taskLock) != 0){
                 error();
                 freeTp(threadPool);
-                return NULL;
+                exit(EXIT_FAILURE);
             }
         }
         if (pthread_mutex_lock(&threadPool->countMutex) != 0) {
             error();
             freeTp(threadPool);
-            return NULL;
+            exit(EXIT_FAILURE);
         }
         // one more active thread.
         threadPool->numActive++;
         if (pthread_mutex_unlock(&threadPool->countMutex) != 0){
             error();
             freeTp(threadPool);
-            return NULL;
+            exit(EXIT_FAILURE);
         }
         // get the next task and execute.
         task * nextTask = getNextTask(threadPool);
@@ -125,17 +124,17 @@ void* assignThread(void * th) {
    }
 }
 
-void* initPthreadStuff(ThreadPool* th) {
+int initPthreadStuff(ThreadPool* th) {
     if (pthread_mutex_init(&th->countMutex, NULL) != 0) {
         error();
-        return NULL;
+        return 0;
     }
     if (pthread_mutex_init(&th->taskLock, NULL) != 0){
         error();
         if (pthread_mutex_destroy(&th->countMutex) != 0){
             error();
         }
-        return NULL;
+        return 0;
     }
 
     if (pthread_cond_init(&th->threadsCond, NULL) != 0){
@@ -144,8 +143,9 @@ void* initPthreadStuff(ThreadPool* th) {
             error();
         if (pthread_mutex_destroy(&th->countMutex) != 0)
             error();
-        return NULL;
+        return 0;
     }
+    return 1;
 }
 
 
@@ -190,12 +190,13 @@ ThreadPool* tpCreate(int numOfThreads) {
         freeTp(threadPool);
         exit(EXIT_FAILURE);
     }
-   createThreadsArray(threadPool, numOfThreads);
-    if (initPthreadStuff(threadPool) == NULL) {
+
+    if (!initPthreadStuff(threadPool)) {
         osDestroyQueue(threadPool->tasksQueue);
         freeTp(threadPool);
         exit(EXIT_FAILURE);
     }
+    createThreadsArray(threadPool, numOfThreads);
     return threadPool;
 }
 
@@ -211,6 +212,7 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* par
     newTask->function = computeFunc;
     if (pthread_mutex_lock(&threadPool->taskLock) != 0){
         error();
+        printf("here4");
         freeTp(threadPool);
         return -1;
     }
@@ -218,11 +220,13 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* par
     // signal that a new task inserted to the queue.
     if (pthread_cond_signal(&threadPool->threadsCond) != 0) {
         error();
+        printf("here3");
         freeTp(threadPool);
         return -1;
     }
     if (pthread_mutex_unlock(&threadPool->taskLock) != 0) {
         error();
+        printf("here2");
         freeTp(threadPool);
         return -1;
     }
@@ -241,5 +245,6 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
     for (i = 0; i < threadPool->numActive; i++){
         pthread_join(threadPool->threads[i],NULL);
     }
+
     freeTp(threadPool);
 }
