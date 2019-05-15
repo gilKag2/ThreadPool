@@ -6,7 +6,7 @@
 #include "osqueue.h"
 
 typedef struct Task{
-    struct task * prevTask;
+
     void (*function)(void * arg);
     void* arg;
 } task;

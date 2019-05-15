@@ -16,7 +16,6 @@ void freeTp(ThreadPool* tp) {
     while (!osIsQueueEmpty(tp->tasksQueue)) {
         struct Task* task = osDequeue(tp->tasksQueue);
         if (task != NULL) {
-            if (task->prevTask != NULL) free(task->prevTask);
             free(task);
         }
     }
@@ -24,6 +23,7 @@ void freeTp(ThreadPool* tp) {
         free(tp->threads);
     }
     osDestroyQueue(tp->tasksQueue);
+
     pthread_mutex_destroy(&tp->taskLock);
     pthread_mutex_destroy(&tp->countMutex);
     pthread_cond_destroy(&tp->threadsCond);
@@ -103,25 +103,28 @@ void* assignThread(void * th) {
         nextTask->function(nextTask->arg);
         free(nextTask);
     }
-    if (pthread_mutex_lock(&threadPool->countMutex) != 0){
-        error();
-        freeTp(threadPool);
-        return NULL;
-    }
-    threadPool->numActive--;
-    // all thread are idle(maybe some are block), so we signal to realease from the block.
-    if (threadPool->numActive == 0) {
-        if (pthread_cond_signal(&threadPool->threadsCond) != 0){
+    if (!threadPool->shouldWork){
+        if (pthread_mutex_lock(&threadPool->countMutex) != 0){
+            error();
+            freeTp(threadPool);
+            return NULL;
+        }
+        threadPool->numActive--;
+        // all thread are idle(maybe some are block), so we signal to realease from the block.
+        if (threadPool->numActive < 1) {
+            if (pthread_cond_signal(&threadPool->threadsCond) != 0){
+                error();
+                freeTp(threadPool);
+                return  NULL;
+            }
+        }
+        if (pthread_mutex_unlock(&threadPool->countMutex) != 0){
             error();
             freeTp(threadPool);
             return  NULL;
         }
     }
-   if (pthread_mutex_unlock(&threadPool->countMutex) != 0){
-       error();
-       freeTp(threadPool);
-       return  NULL;
-   }
+
 }
 
 int initPthreadStuff(ThreadPool* th) {
@@ -212,7 +215,6 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* par
     newTask->function = computeFunc;
     if (pthread_mutex_lock(&threadPool->taskLock) != 0){
         error();
-        printf("here4");
         freeTp(threadPool);
         return -1;
     }
@@ -220,13 +222,11 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* par
     // signal that a new task inserted to the queue.
     if (pthread_cond_signal(&threadPool->threadsCond) != 0) {
         error();
-        printf("here3");
         freeTp(threadPool);
         return -1;
     }
     if (pthread_mutex_unlock(&threadPool->taskLock) != 0) {
         error();
-        printf("here2");
         freeTp(threadPool);
         return -1;
     }
