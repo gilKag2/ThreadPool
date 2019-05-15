@@ -15,7 +15,7 @@ typedef struct Task{
 
 typedef struct thread_pool
 {
-    struct thread ** threads;
+    pthread_t * threads;
     OSQueue* tasksQueue;
     volatile  int  numAlive;
     volatile  int numActive;
@@ -28,11 +28,6 @@ typedef struct thread_pool
 
 }ThreadPool;
 
-typedef struct Thread{
-    ThreadPool* threadPool;
-    pthread_t pThread;
-
-} thread;
 
 
 

@@ -21,10 +21,7 @@ void freeTp(ThreadPool* tp) {
         }
     }
     if (tp->threads != NULL) {
-        int i;
-        for (i = 0; i < tp->numAlive; i++) {
-            free(tp->threads[i]);
-        }
+        printf ("deleting threads\n");
         free(tp->threads);
     }
     osDestroyQueue(tp->tasksQueue);
@@ -37,19 +34,22 @@ void freeTp(ThreadPool* tp) {
 task* getNextTask(ThreadPool* tp){
     if (pthread_mutex_lock(&tp->taskLock) != 0) {
         error();
-        return NULL;
+        freeTp(tp);
+        exit(EXIT_FAILURE);
     }
     task*  nextTask = osDequeue(tp->tasksQueue);
     if (pthread_mutex_unlock(&tp->taskLock) != 0) {
         error();
-        return  NULL;
+        freeTp(tp);
+        exit(EXIT_FAILURE);
     }
     return  nextTask;
 }
 
 // assigning a thread to execute a task.
-void* assignThread(thread * th) {
-    ThreadPool* threadPool = (ThreadPool *) th->threadPool;
+void* assignThread(void * th) {
+
+    ThreadPool* threadPool = (ThreadPool *) th;
     if(pthread_mutex_lock(&threadPool->countMutex) != 0) {
         error();
         freeTp(threadPool);
@@ -125,21 +125,6 @@ void* assignThread(thread * th) {
    }
 }
 
-// initialize the thread.
-void* initThread(thread** th, ThreadPool* thPool) {
-    *th = (thread*)malloc(sizeof(thread));
-    if (*th == NULL){
-        error();
-        return NULL;
-    }
-   
-    (*th)->threadPool = thPool;
-    if (pthread_create(&(*th)->pThread, NULL, (void*)assignThread, (*th)) != 0) {
-        error();
-        return NULL;
-    }
-}
-
 void* initPthreadStuff(ThreadPool* th) {
     if (pthread_mutex_init(&th->countMutex, NULL) != 0) {
         error();
@@ -164,6 +149,23 @@ void* initPthreadStuff(ThreadPool* th) {
 }
 
 
+int createThreadsArray(ThreadPool* tp, int numOfThreads){
+    tp->threads = (pthread_t*)malloc(numOfThreads * sizeof(pthread_t));
+    if (tp->threads == NULL) {
+        error();
+        freeTp(tp);
+        exit(EXIT_FAILURE);
+    }
+    int i;
+    for ( i = 0; i < numOfThreads; i++){
+        if (pthread_create(&tp->threads[i], NULL, (void*)assignThread, tp) != 0){
+            error();
+            freeTp(tp);
+            exit(EXIT_FAILURE);
+        }
+    }
+    return 1;
+}
 
 ThreadPool* tpCreate(int numOfThreads) {
     if (numOfThreads < 1) {
@@ -183,31 +185,16 @@ ThreadPool* tpCreate(int numOfThreads) {
     threadPool->numActive = 0;
     threadPool->numAlive = 0;
     threadPool->tasksQueue = osCreateQueue();
-    // allocate n thread in the th_pool.
-    threadPool->threads = (struct thread **) malloc(numOfThreads * sizeof(struct thread *));
-    // error in allocation.
-    if (threadPool->threads == NULL) {
+    if (threadPool->tasksQueue == NULL){
         error();
-        osDestroyQueue(threadPool->tasksQueue);
-        free(threadPool);
+        freeTp(threadPool);
         exit(EXIT_FAILURE);
     }
+   createThreadsArray(threadPool, numOfThreads);
     if (initPthreadStuff(threadPool) == NULL) {
         osDestroyQueue(threadPool->tasksQueue);
-        free(threadPool);
-       exit(EXIT_FAILURE);
-    }
-    int i;
-    for (i = 0; i < numOfThreads; i++) {
-        if (initThread((thread **) &threadPool->threads[i], threadPool) == NULL) {
-            for (i = 0; i <= threadPool->numAlive; i++) {                       ///////////////// not sure here!!!1
-                if (threadPool->threads[i] != NULL) {
-                    free(threadPool->threads[i]);
-                }
-            }
-            freeTp(threadPool);
-            return NULL;
-        }
+        freeTp(threadPool);
+        exit(EXIT_FAILURE);
     }
     return threadPool;
 }
@@ -250,9 +237,9 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
     threadPool->shouldWork = !threadPool->shouldWaitToFinish;
     pthread_cond_broadcast(&threadPool->threadsCond);
     int i;
+    // join all threads.
     for (i = 0; i < threadPool->numActive; i++){
-        thread** th = &threadPool->threads[i];
-        pthread_join(&(*th)->pThread,NULL);
+        pthread_join(threadPool->threads[i],NULL);
     }
     freeTp(threadPool);
 }
