@@ -19,7 +19,7 @@ typedef struct thread_pool
     OSQueue* tasksQueue;
     volatile  int  numAlive;
     volatile  int numActive;
-    pthread_cond_t  threadAreIdle;
+    pthread_cond_t  threadsCond;
     pthread_mutex_t  countMutex;
     pthread_mutex_t taskLock;
     bool shouldWork;
