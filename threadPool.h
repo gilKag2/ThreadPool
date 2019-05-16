@@ -1,35 +1,37 @@
+
+/*
+ * Gil Kagan
+ * 315233221
+ */
+
 #ifndef __THREAD_POOL__
 #define __THREAD_POOL__
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <stdbool.h>
 #include "osqueue.h"
-
-typedef struct Task{
-
-    void (*function)(void * arg);
-    void* arg;
-} task;
-
-
-
-typedef struct thread_pool
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <string.h>
+typedef struct task
 {
-    pthread_t * threads;
-    OSQueue* tasksQueue;
-    volatile  int  numAlive;
-    volatile  int numActive;
-    pthread_cond_t  threadsCond;
-    pthread_mutex_t  countMutex;
-    pthread_mutex_t taskLock;
-    bool shouldWork;
-    bool shouldWaitToFinish;
+    void (*computeFunc)(void*);
+    void *parameters;
+}Task;
 
+typedef struct ThreadPool
+{
+    OSQueue* tasksQueue;
+    OSQueue* pThreadsQueue;
+    pthread_mutex_t tasksLock;
+    pthread_mutex_t newTaskLock;
+    pthread_mutex_t pThreadLock;
+    pthread_cond_t taskCond;
+    volatile bool finish;
+    volatile bool shouldWait;
 
 }ThreadPool;
-
-
-
 
 ThreadPool* tpCreate(int numOfThreads);
 
@@ -38,3 +40,5 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks);
 int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *), void* param);
 
 #endif
+
+
